@@ -22,6 +22,7 @@ package org.eclipse.jetty.http;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.nullValue;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -332,5 +333,153 @@ public class HttpURITest
         {
             assertEquals("Relative path with authority",e.getMessage());
         }
+    }
+
+    @Test
+    public void testBadAuthorities()
+    {
+        String[] badUris = {
+            "http://#host/path",
+            "https:// host/path",
+            "https://h st/path",
+            "https://h\000st/path",
+            "https://h%GGst/path",
+            "https://host%/path",
+            "https://host%0/path",
+            "https://host%u001f/path",
+            "https://host%:8080/path",
+            "https://host%0:8080/path",
+            "https://user%@host/path",
+            "https://user%0@host/path",
+            "https://host:notport/path",
+            "https://user@host:notport/path",
+            "https://user:password@host:notport/path",
+            "https://user @host.com/",
+            "https://[notIpv6]/",
+            "https://bad[0::1::2::3::4]/",
+            "http://[normal.com@]vulndetector.com/",
+            "http://normal.com[user@vulndetector].com/",
+            "http://normal.com[@]vulndetector.com/"
+        };
+
+        for (String uri : badUris)
+        {
+            try
+            {
+                new HttpURI(uri);
+                fail("Expected IllegalArgumentException for: " + uri);
+            }
+            catch (IllegalArgumentException e)
+            {
+                // expected
+            }
+        }
+    }
+
+    @Test
+    public void testGoodAuthorities()
+    {
+        String[] goodUris = {
+            "http://host/path",
+            "http://host:8080/path",
+            "http://user@host/path",
+            "http://user:password@host/path",
+            "http://user:password@host:8080/path",
+            "http://192.168.0.1:8080/path",
+            "http://[::1]/path",
+            "http://[::1]:8080/path",
+            "https://[::1]/path",
+            "http://host.example.com/path",
+            "http://host-name.example.com:80/path",
+            "http://host%2ename.example.com/path"
+        };
+
+        for (String uri : goodUris)
+        {
+            try
+            {
+                new HttpURI(uri);
+            }
+            catch (Exception e)
+            {
+                fail("Unexpected exception for '" + uri + "': " + e);
+            }
+        }
+    }
+
+    @Test
+    public void testIPv4MappedIPv6()
+    {
+        String[] hosts = {
+            "[0:0:0:0:0:ffff:127.0.0.1]",
+            "[::ffff:127.0.0.1]"
+        };
+
+        for (String host : hosts)
+        {
+            HttpURI uri = new HttpURI("http://" + host + "/");
+            assertEquals("http", uri.getScheme());
+            assertEquals(host, uri.getHost());
+            assertEquals("/", uri.getPath());
+        }
+    }
+
+    @Test
+    public void testIPv6NoPath()
+    {
+        HttpURI uri = new HttpURI("http://[::1]");
+        assertEquals("[::1]", uri.getHost());
+        assertNull(uri.getPath());
+    }
+
+    @Test
+    public void testAuthorityNoPath()
+    {
+        HttpURI uri = new HttpURI("http://good.com#@evil.com");
+        assertEquals("good.com", uri.getAuthority());
+        assertEquals("", uri.getPath());
+        assertNull(uri.getQuery());
+        assertEquals("@evil.com", uri.getFragment());
+
+        uri = new HttpURI("http://good.com?@evil.com");
+        assertEquals("good.com", uri.getAuthority());
+        assertEquals("", uri.getPath());
+        assertEquals("@evil.com", uri.getQuery());
+        assertNull(uri.getFragment());
+
+        uri = new HttpURI("https://user#@host.com/");
+        assertEquals("user", uri.getHost());
+        assertEquals("", uri.getPath());
+        assertEquals("@host.com/", uri.getFragment());
+
+        uri = new HttpURI("https://host;param/path");
+        assertEquals("host", uri.getHost());
+        assertEquals(";param/path", uri.getPath());
+    }
+
+    @Test
+    public void testConnectAuthority()
+    {
+        String[] authorities = {
+            "localhost:8080",
+            "127.0.0.1:8080",
+            "[::1]:8080"
+        };
+
+        for (String authority : authorities)
+        {
+            HttpURI uri = new HttpURI();
+            uri.parseRequestTarget(HttpMethod.CONNECT.asString(), authority);
+            assertEquals(authority, uri.getAuthority());
+        }
+    }
+
+    @Test
+    public void testFromSlash()
+    {
+        HttpURI uri = new HttpURI("/");
+        assertNull(uri.getScheme());
+        assertNull(uri.getAuthority());
+        assertEquals("/", uri.getPath());
     }
 }
